@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { ArrowLeft, Download, GripVertical, X, Settings2, Image as ImageIcon, FileImage, Check, Share } from 'lucide-react';
 
+const IMAGE_PATH = '/perihelion/images';
 const renderableExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg', '.bmp'];
 const isRenderable = (filename: string) => {
   const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
@@ -126,16 +127,18 @@ export default function StagingView({ selectedImages, onBack, onDownload, isDown
 
     setIsGenerating(true);
     try {
-      const res = await fetch('/api/share', {
+      // NEW
+      const res = await fetch('/perihelion/api/share.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ images: filesToShare, title: pageTitle.trim() })
-      });
+        body: JSON.stringify({ images: filesToShare, title: pageTitle.trim() }),
+      })
       const data = await res.json();
       if (data.id) {
         setShowTitlePopup(false);
         setPageTitle('');
-        window.open(`/?share=${data.id}`, '_blank');
+        const shareUrl = `/perihelion/?share=${data.id}`;
+          window.open(shareUrl, '_blank');
       }
     } catch (err) {
       console.error('Failed to generate page', err);
@@ -405,6 +408,7 @@ export default function StagingView({ selectedImages, onBack, onDownload, isDown
         {/* Right Panel: Thumbnails */}
         <div className="flex-1 overflow-y-auto p-6 bg-[#F0F0F0]">
           <div className="flex flex-wrap gap-4 sm:gap-6">
+            
             {selectedImages.map(img => (
               <div 
                 key={img} 
@@ -417,31 +421,19 @@ export default function StagingView({ selectedImages, onBack, onDownload, isDown
                       {selectedForDownload.has(img) && <Check size={14} className="text-white" strokeWidth={3} />}
                     </div>
                   </div>
+
                   {isRenderable(img) ? (
-                    <img
-                      src={`/images/${encodeURI(img)}`}
-                      alt={img}
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="h-full w-auto object-contain"
+                    <img 
+                      src={`${IMAGE_PATH}/${encodeURI(img)}`} 
+                      alt={img} 
+                      loading="lazy" 
+                      referrerPolicy="no-referrer" 
+                      className="h-full w-auto object-contain" 
                     />
                   ) : (
                     <div className="flex flex-col items-center justify-center text-[#888] gap-2 w-48 h-full">
                       <FileImage size={24} strokeWidth={1.5} />
-                      <span className="text-[9px] font-bold uppercase tracking-widest">{img.split('.').pop()}</span>
-                    </div>
-                  )}
-                </div>
-                <div className="p-3 flex flex-col gap-2" style={{ width: '0', minWidth: '100%' }}>
-                  <div className="flex flex-col">
-                    <span className="text-xs truncate font-bold block" title={img}>{img.split('/').pop()}</span>
-                  </div>
-                  {enableRenaming && (
-                    <div className="flex flex-col">
-                      <span className="text-[9px] font-bold text-[#888] uppercase tracking-wider">New Name</span>
-                      <span className="text-xs truncate font-medium block" title={computedNames[img]}>
-                        {computedNames[img]}
-                      </span>
+                      <span className="text-[9px] font-bold uppercase tracking-[widest]">{img.split('.').pop()}</span>
                     </div>
                   )}
                 </div>

@@ -17,14 +17,6 @@ async function startServer() {
     fs.mkdirSync(IMAGES_DIR, { recursive: true });
   }
 
-  // Create placeholder folders
-  for (let i = 1; i <= 5; i++) {
-    const folderPath = path.join(IMAGES_DIR, `Folder ${i}`);
-    if (!fs.existsSync(folderPath)) {
-      fs.mkdirSync(folderPath, { recursive: true });
-    }
-  }
-
   app.get("/api/images", (req, res) => {
     const page = parseInt(req.query.page as string) || 1;
     const limit = parseInt(req.query.limit as string) || 25;
@@ -62,17 +54,6 @@ async function startServer() {
 
       imageFiles.sort();
 
-      // Add mock images
-      if (!safePath && imageFiles.length < 26) {
-        const needed = 26 - imageFiles.length;
-        const mockImages = Array.from({ length: needed }, (_, i) => `mock-lion-${i + 1}.jpg`);
-        imageFiles = [...imageFiles, ...mockImages];
-      } else if (safePath === "Folder 1" && imageFiles.length < 11) {
-        const needed = 11 - imageFiles.length;
-        const mockImages = Array.from({ length: needed }, (_, i) => `${safePath}/mock-lion-f1-${i + 1}.jpg`);
-        imageFiles = [...imageFiles, ...mockImages];
-      }
-
       const total = imageFiles.length;
       const totalPages = Math.ceil(total / limit) || 1;
       const startIndex = (page - 1) * limit;
@@ -90,45 +71,16 @@ async function startServer() {
     });
   });
 
-  // Serve mock images or real images
-  app.get("/images/*", (req, res, next) => {
-    const filename = req.params[0];
-    const basename = path.basename(filename);
-    if (basename.startsWith("mock-lion-")) {
-      const seed = basename.replace('.jpg', '');
-      return res.redirect(`https://picsum.photos/seed/${seed}/800/800`);
-    }
-    next();
-  });
-
   app.get("/api/download/*", async (req, res) => {
     const filename = req.params[0];
     const safePath = path.normalize(filename).replace(/^(\.\.(\/|\\|$))+/, '');
     const basename = path.basename(safePath);
 
-    if (basename.startsWith("mock-lion-")) {
-      const seed = basename.replace('.jpg', '');
-      try {
-        const response = await fetch(`https://picsum.photos/seed/${seed}/800/800`);
-        if (response.ok) {
-          res.attachment(basename);
-          const arrayBuffer = await response.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-          return res.send(buffer);
-        } else {
-          return res.status(404).json({ error: "Mock image not found" });
-        }
-      } catch (e) {
-        console.error("Failed to fetch mock image", e);
-        return res.status(500).json({ error: "Failed to download mock image" });
-      }
+    const filePath = path.join(IMAGES_DIR, safePath);
+    if (fs.existsSync(filePath)) {
+      return res.download(filePath, basename);
     } else {
-      const filePath = path.join(IMAGES_DIR, safePath);
-      if (fs.existsSync(filePath)) {
-        return res.download(filePath, basename);
-      } else {
-        return res.status(404).json({ error: "Image not found" });
-      }
+      return res.status(404).json({ error: "Image not found" });
     }
   });
 
@@ -155,15 +107,6 @@ async function startServer() {
     const safePath = path.normalize(filename).replace(/^(\.\.(\/|\\|$))+/, '');
     const basename = path.basename(safePath);
     const ext = path.extname(basename).toLowerCase().replace('.', '');
-
-    if (basename.startsWith("mock-lion-")) {
-      return res.json({
-        type: ext.toUpperCase() || 'JPG',
-        size: 153600, // 150 KB
-        width: 800,
-        height: 800
-      });
-    }
 
     const filePath = path.join(IMAGES_DIR, safePath);
     if (fs.existsSync(filePath)) {
@@ -205,22 +148,9 @@ async function startServer() {
       let imageBuffer: Buffer | null = null;
       const basename = path.basename(original);
 
-      if (basename.startsWith("mock-lion-")) {
-        const seed = basename.replace('.jpg', '');
-        try {
-          const response = await fetch(`https://picsum.photos/seed/${seed}/800/800`);
-          if (response.ok) {
-            const arrayBuffer = await response.arrayBuffer();
-            imageBuffer = Buffer.from(arrayBuffer);
-          }
-        } catch (e) {
-          console.error("Failed to fetch mock image", e);
-        }
-      } else {
-        const filePath = path.join(IMAGES_DIR, original);
-        if (fs.existsSync(filePath)) {
-          imageBuffer = fs.readFileSync(filePath);
-        }
+      const filePath = path.join(IMAGES_DIR, original);
+      if (fs.existsSync(filePath)) {
+        imageBuffer = fs.readFileSync(filePath);
       }
 
       if (imageBuffer) {

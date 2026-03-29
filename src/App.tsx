@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FolderOpen, X, Check, Download, ArrowLeft, FileImage } from 'lucide-react';
 import StagingView, { DownloadOptions } from './components/StagingView';
 
@@ -7,6 +7,10 @@ const isRenderable = (filename: string) => {
   const ext = filename.substring(filename.lastIndexOf('.')).toLowerCase();
   return renderableExts.includes(ext);
 };
+
+const BASE_PATH = '/perihelion';
+const IMAGE_PATH = `${BASE_PATH}/images`;
+const API_PATH = `${BASE_PATH}/api`;
 
 export default function App() {
   const [images, setImages] = useState<string[]>([]);
@@ -27,9 +31,25 @@ export default function App() {
   // New state for row height and limit
   const [rowHeight, setRowHeight] = useState(250);
   const [limit, setLimit] = useState(25);
+
+// Derived paging values based on current images + limit
+const computedTotalPages = Math.max(
+  1,
+  Math.ceil(images.length / limit || 1),
+);
+const startIndex = (page - 1) * limit;
+const endIndex = startIndex + limit;
+const pagedImages = images.slice(startIndex, endIndex);
+
+useEffect(() => {
+  setTotalPages(computedTotalPages);
+}, [computedTotalPages]);
+  
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [isDownloading, setIsDownloading] = useState(false);
   const [view, setView] = useState<'gallery' | 'staging'>('gallery');
+
+const stagedImages = Array.from(selectedImages.size ? selectedImages : new Set(pagedImages)) as string[];
 
   // Initialize state from URL on mount
   useEffect(() => {
@@ -37,8 +57,13 @@ export default function App() {
     const shareId = params.get('share');
     if (shareId) {
       setIsSharedView(true);
-      fetch(`/api/share/${shareId}`)
-        .then(res => res.json())
+      const controller = new AbortController();
+      
+      fetch('/perihelion/api/share.php?id=' + encodeURIComponent(shareId), { signal: controller.signal })
+        .then(res => {
+          if (!res.ok) throw new Error('Network response was not ok');
+          return res.json();
+        })
         .then(data => {
           if (data.error) setSharedError(data.error);
           else {
@@ -46,8 +71,12 @@ export default function App() {
             if (data.title) setSharedTitle(data.title);
           }
         })
-        .catch(() => setSharedError('Failed to load shared page'));
-      return;
+        .catch((err) => {
+          if (err.name !== 'AbortError') setSharedError('Failed to load shared page');
+        });
+      return () => {
+        controller.abort();
+      };
     }
 
     const heightParam = params.get('height');
@@ -66,15 +95,7 @@ export default function App() {
     if (pageParam) setPage(parseInt(pageParam, 10));
   }, []);
 
-  // Sync state to URL
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    url.searchParams.set('height', rowHeight.toString());
-    url.searchParams.delete('columns');
-    url.searchParams.set('limit', limit.toString());
-    url.searchParams.set('page', page.toString());
-    window.history.replaceState({}, '', url.toString());
-  }, [rowHeight, limit, page]);
+
 
   // Update document title
   useEffect(() => {
@@ -97,12 +118,15 @@ export default function App() {
   const fetchImages = async (p: number, l: number, path: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/images?page=${p}&limit=${l}&path=${encodeURIComponent(path)}`);
+      // NEW
+      const res = await fetch(`${API_PATH}/images.php?page=${p}&limit=${l}&path=${encodeURIComponent(path)}`)
       const data = await res.json();
       setImages(data.images || []);
       setDirectories(data.directories || []);
-      setTotalPages(data.totalPages || 1);
-      setTotalImages(data.total || 0);
+
+      setTotalImages(data.total ?? data.images.length ?? 0);
+    // totalPages will be derived in the useEffect above
+      
     } catch (err) {
       console.error("Failed to fetch images", err);
     } finally {
@@ -123,7 +147,8 @@ export default function App() {
   useEffect(() => {
     if (selectedImage) {
       setImageMeta(null);
-      fetch(`/api/image-meta/${encodeURI(selectedImage)}`)
+      // NEW
+      fetch(`${API_PATH}/image-meta.php?file=${encodeURI(selectedImage)}`)
         .then(res => res.json())
         .then(data => {
           if (!data.error) setImageMeta(data);
@@ -156,11 +181,13 @@ export default function App() {
     if (options.files.length === 0) return;
     setIsDownloading(true);
     try {
-      const res = await fetch('/api/download', {
+      //NEW
+      const res = await
+        fetch(`${API_PATH}/download.php`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(options)
-      });
+        body: JSON.stringify(options),
+      })
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -196,7 +223,8 @@ export default function App() {
               <div key={img} className="flex items-center justify-center w-full">
                 {isRenderable(img) ? (
                   <img
-                    src={`/images/${encodeURI(img)}`}
+                  //NEW
+                    src={`${IMAGE_PATH}/${encodeURI(img)}`}
                     alt={img}
                     loading="lazy"
                     referrerPolicy="no-referrer"
@@ -216,16 +244,16 @@ export default function App() {
     );
   }
 
-  if (view === 'staging') {
-    return (
-      <StagingView 
-        selectedImages={Array.from(selectedImages)} 
-        onBack={() => setView('gallery')}
-        onDownload={handleDownload}
-        isDownloading={isDownloading}
-      />
-    );
-  }
+if (view === 'staging') {
+  return (
+    <StagingView
+      selectedImages={stagedImages}
+      onBack={() => setView('gallery')}
+      onDownload={handleDownload}
+      isDownloading={isDownloading}
+    />
+  );
+}
 
   return (
     <div className="min-h-screen text-black flex flex-col selection:bg-black selection:text-white bg-[#F0F0F0]">
@@ -276,14 +304,22 @@ export default function App() {
               <button onClick={() => setSelectedImages(new Set())} className="text-[#888] hover:text-black">Clear All</button>
             )}
             {selectedImages.size > 0 && (
-              <button 
-                onClick={() => setView('staging')} 
-                disabled={isDownloading}
+              <button
+                onClick={() => {
+                  // If nothing is selected, stage the current page
+                  if (selectedImages.size === 0) {
+                    const newSet = new Set(selectedImages);
+                    pagedImages.forEach(img => newSet.add(img));
+                    setSelectedImages(newSet);
+                  }
+                  setView('staging');
+                }}
+                disabled={isDownloading && selectedImages.size === 0}
                 className="ml-auto bg-black text-white px-3 py-1.5 flex items-center gap-2 hover:bg-[#333] disabled:bg-[#888] transition-colors"
               >
                 <Download size={14} strokeWidth={2.5} />
-                Stage {selectedImages.size} Images
-              </button>
+              Stage {selectedImages.size || pagedImages.length} Images
+            </button>
             )}
           </div>
         </div>
@@ -340,7 +376,7 @@ export default function App() {
           </div>
         ) : (
           <div className="flex flex-wrap gap-4 sm:gap-6">
-            {images.map((img, idx) => (
+            {pagedImages.map((img, idx) => (
               <div
                 key={idx}
                 className={`bg-white border-[2px] flex flex-col transition-all ${selectedImages.has(img) ? 'border-black shadow-[4px_4px_0px_0px_rgba(0,0,0,1)] z-10' : 'border-[#666] hover:border-black'}`}
@@ -358,7 +394,7 @@ export default function App() {
                   </button>
                   {isRenderable(img) ? (
                     <img
-                      src={`/images/${encodeURI(img)}`}
+                      src={`${IMAGE_PATH}/${encodeURI(img)}`}
                       alt={img}
                       loading="lazy"
                       referrerPolicy="no-referrer"
@@ -436,7 +472,7 @@ export default function App() {
           <div className="relative w-full h-full flex items-center justify-center flex-col gap-4">
             {isRenderable(selectedImage) ? (
               <img
-                src={`/images/${encodeURI(selectedImage)}`}
+                src={`${IMAGE_PATH}/${encodeURI(selectedImage)}`}
                 alt={selectedImage}
                 referrerPolicy="no-referrer"
                 className="max-w-full max-h-full object-contain border-[2px] border-[#666] bg-white cursor-pointer"
@@ -465,7 +501,7 @@ export default function App() {
                 <span className="text-[9px] mt-1 tracking-widest animate-pulse">LOADING METADATA...</span>
               )}
               <a 
-                href={`${window.location.origin}/images/${encodeURI(selectedImage)}`} 
+                href={`${window.location.origin}${IMAGE_PATH}/${encodeURI(selectedImage)}`} 
                 target="_blank" 
                 rel="noreferrer" 
                 className="text-[9px] mt-2 lowercase text-[#F27D26] hover:underline tracking-wider break-all max-w-lg"
