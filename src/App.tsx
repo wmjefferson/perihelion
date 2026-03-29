@@ -41,9 +41,14 @@ const startIndex = (page - 1) * limit;
 const endIndex = startIndex + limit;
 const pagedImages = images.slice(startIndex, endIndex);
 
+// Trim selections to current page size when limit changes
 useEffect(() => {
-  setTotalPages(computedTotalPages);
-}, [computedTotalPages]);
+  const newSet = new Set();
+  pagedImages.forEach(img => newSet.add(img));  // Max = current page
+  if (selectedImages.size > pagedImages.length) {
+    setSelectedImages(newSet);
+  }
+}, [limit, page, images]);  // Runs when limit/page/images change
   
   const [selectedImages, setSelectedImages] = useState<Set<string>>(new Set());
   const [isDownloading, setIsDownloading] = useState(false);
@@ -165,17 +170,17 @@ const stagedImages = Array.from(selectedImages.size ? selectedImages : new Set(p
     setSelectedImages(newSet);
   };
 
-  const handleSelectAll = () => {
-    const newSet = new Set(selectedImages);
-    images.forEach(img => newSet.add(img));
-    setSelectedImages(newSet);
-  };
+const handleSelectPage = () => {  // Renamed for clarity
+  const newSet = new Set(selectedImages);
+  pagedImages.forEach(img => newSet.add(img));  // Only current page
+  setSelectedImages(newSet);
+}
 
-  const handleDeselectAll = () => {
-    const newSet = new Set(selectedImages);
-    images.forEach(img => newSet.delete(img));
-    setSelectedImages(newSet);
-  };
+const handleDeselectPage = () => {  // Renamed
+  const newSet = new Set(selectedImages);
+  pagedImages.forEach(img => newSet.delete(img));  // Only current page
+  setSelectedImages(newSet);
+}
 
   const handleDownload = async (options: DownloadOptions) => {
     if (options.files.length === 0) return;
@@ -259,7 +264,7 @@ if (view === 'staging') {
     <div className="min-h-screen text-black flex flex-col selection:bg-black selection:text-white bg-[#F0F0F0]">
       {/* Top Banner */}
       <header className="h-[36px] bg-white border-b-[3px] border-black sticky top-0 z-40 flex items-center px-4 shrink-0">
-        <h1 className="font-archivo text-sm uppercase tracking-wider font-bold">Perihelion</h1>
+        <h1 className="font-archivo text-sm uppercase tracking-wider font-bold">Perihelion v1.0.0</h1>
       </header>
 
       {/* Main Content */}
@@ -298,8 +303,8 @@ if (view === 'staging') {
           {/* Options Row 3: Selection */}
           <div className="flex items-center gap-3 font-sans text-[11px] font-bold uppercase tracking-wider mt-2">
             <span className="text-[#888]">Selection</span>
-            <button onClick={handleSelectAll} className="text-[#888] hover:text-black">Select Page</button>
-            <button onClick={handleDeselectAll} className="text-[#888] hover:text-black">Deselect Page</button>
+            <button onClick={handleSelectPage} className="text-[#888] hover:text-black">Select Page</button>
+            <button onClick={handleDeselectPage} className="text-[#888] hover:text-black">Deselect Page</button>
             {selectedImages.size > 0 && (
               <button onClick={() => setSelectedImages(new Set())} className="text-[#888] hover:text-black">Clear All</button>
             )}
